@@ -1,5 +1,9 @@
 # AWS EFS CSI PV provisioner
 
+## This is a slightly amended version of its upstream that will work nicely with multiple clusters.
+## It does this by NOT including the PVC UUID reference in the mounted subpath. Unexpected results may occur!
+## A ".lock" file is created for each pvc and is used to prevent deletion if still in use.
+
 Kubernetes CSI driver to dynamically provisions Persistent Volumes (PVs) in response to user-requested Persistent Volume Clains (PVCs). Each PV / PVC is a subdirectory on a single, cluster-wide EFS file system. Works in conjunction with the [AWS EFS CSI driver](https://github.com/kubernetes-sigs/aws-efs-csi-driver).
 
 ## Installation

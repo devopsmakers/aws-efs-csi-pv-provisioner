@@ -91,16 +91,20 @@ func TestProvisionAndDelete(t *testing.T) {
 	assert.Equal(t, "efs-sc", pv.Spec.StorageClassName, "Incorrect storage class name")
 	assert.Equal(t, mountOptions, pv.Spec.MountOptions, "Mount options are not copied")
 	assert.Equal(t, efsCsiDriverName, pv.Spec.PersistentVolumeSource.CSI.Driver, "Driver name in PV is incorrect")
-	assert.Equal(t, "fs-123456:/persistentvolumes/my-ns-my-pvc-pvc-123456", pv.Spec.PersistentVolumeSource.CSI.VolumeHandle)
+	assert.Equal(t, "fs-123456:/persistentvolumes/my-ns/my-pvc", pv.Spec.PersistentVolumeSource.CSI.VolumeHandle)
 
-	stat, err := os.Stat("./efs/persistentvolumes/my-ns-my-pvc-pvc-123456")
+	stat, err := os.Stat("./efs/persistentvolumes/my-ns/my-pvc")
 	assert.NoError(t, err, "os.Stat() failed: directory for PV probably doesn't exit")
 	assert.True(t, stat.IsDir(), "Is not a directory")
+
+
+	_, err = os.Stat("./efs/persistentvolumes/my-ns/my-pvc/.pvc-123456.lock")
+	assert.NoError(t, err, "os.Stat() failed: lockfile for PV doesn't exit")
 
 	err = provisioner.Delete(pv)
 	assert.NoError(t, err, "Delete() failed")
 
-	_, err = os.Stat("./efs/persistentvolumes/my-ns-my-pvc-pvc-123456")
+	_, err = os.Stat("./efs/persistentvolumes/my-ns/my-pvc")
 	assert.Error(t, err, "Directory for PV was not deleted")
 	assert.True(t, os.IsNotExist(err), "error is not a NotExist error")
 

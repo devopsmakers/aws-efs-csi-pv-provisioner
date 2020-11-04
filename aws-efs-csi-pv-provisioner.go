@@ -62,7 +62,7 @@ func (p *efsProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 		gid = &allocate
 	}
 
-	err := p.createVolume(p.getLocalPath(options), gid)
+	err := p.createVolume(p.getLocalPath(options), p.getLockFileName(options), gid)
 	if err != nil {
 		return nil, err
 	}
@@ -102,27 +102,38 @@ func (p *efsProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 	return pv, nil
 }
 
-func (p *efsProvisioner) createVolume(path string, gid *int) error {
+func (p *efsProvisioner) createVolume(localPath string, lockfile string, gid *int) error {
 	perm := os.FileMode(0777)
 	if gid != nil {
 		perm = os.FileMode(0771 | os.ModeSetgid)
 	}
 
-	if err := os.MkdirAll(path, perm); err != nil {
+	if err := os.MkdirAll(localPath, perm); err != nil {
 		return err
 	}
 
 	// Due to umask, need to chmod
-	if err := os.Chmod(path, perm); err != nil {
-		os.RemoveAll(path)
+	if err := os.Chmod(localPath, perm); err != nil {
+		os.RemoveAll(localPath)
 		return err
 	}
 
 	if gid != nil {
-		if err := os.Chown(path, os.Getuid(), *gid); err != nil {
-			os.RemoveAll(path)
+		if err := os.Chown(localPath, os.Getuid(), *gid); err != nil {
+			os.RemoveAll(localPath)
 			return err
 		}
+	}
+
+	// Create lockfile
+	if _, err := os.Create(path.Join(localPath, "/", lockfile)); err != nil {
+		return err
+	}
+
+	// Set immutable bit on lockfile
+	if err := os.Chmod(path.Join(localPath, "/", lockfile), os.FileMode(1700)); err != nil {
+		os.RemoveAll(localPath)
+		return err
 	}
 
 	return nil
@@ -137,25 +148,43 @@ func (p *efsProvisioner) getRemotePath(options controller.ProvisionOptions) stri
 }
 
 func (p *efsProvisioner) getDirectoryName(options controller.ProvisionOptions) string {
-	return options.PVC.Namespace + "-" + options.PVC.Name + "-" + options.PVName
+	return path.Join(options.PVC.Namespace, "/", options.PVC.Name)
 }
+
+func (p *efsProvisioner) getLockFileName(options controller.ProvisionOptions) string {
+	return "." + options.PVName + ".lock"
+}
+
 
 // Delete removes the storage asset that was created by Provision represented
 // by the given PV.
 func (p *efsProvisioner) Delete(volume *v1.PersistentVolume) error {
+  lockfile := "." + volume.Name + ".lock"
+
 	//TODO ignorederror
 	err := p.allocator.Release(volume)
 	if err != nil {
 		return err
 	}
 
-	path, err := p.getLocalPathToDelete(volume.Spec.CSI)
+	localPath, err := p.getLocalPathToDelete(volume.Spec.CSI)
 	if err != nil {
 		return err
 	}
 
-	if err := os.RemoveAll(path); err != nil {
+  // remove lockfile
+	if err := os.Remove(path.Join(localPath, "/", lockfile)); err != nil {
 		return err
+	}
+
+  // check for other lockfiles - delete if there are 0
+	if matches, err := filepath.Glob(path.Join(localPath, "/", ".*.lock")); err != nil {
+		return err
+	} else if len(matches) == 0 {
+		// only delete on 0 lock files
+		if err := os.RemoveAll(localPath); err != nil {
+			return err
+		}
 	}
 
 	return nil
